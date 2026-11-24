@@ -233,6 +233,7 @@ class MB_OT_map_window(bpy.types.Operator):
         self.sec_tex = None   # 当前高度范围的剖面贴图，(键, GPUTexture, dp)
         self.sec_ms = 0.0
         self.sec_pending = False
+        self.confirm = None   # 超大选区导入确认：((选区, 导入方式), 时间)
         self.closing = False
         self.show_panel = True
         self.buttons_side = []
@@ -519,6 +520,15 @@ class MB_OT_map_window(bpy.types.Operator):
             self.message = "还没有选区：在地图上按住左键拖拽框选"
             return
         from . import importer
+        s = bpy.context.scene.mineblend
+        warn = importer.size_warnings(sel[0], sel[1], s.split_mode)
+        key = (sel, s.split_mode)
+        if warn and not (self.confirm and self.confirm[0] == key and time.time() - self.confirm[1] < 10):
+            # 超大选区：先提醒，10 秒内再按一次 Enter（或再点「导入选区」）才导入
+            self.confirm = (key, time.time())
+            self.message = "⚠ " + "；".join(warn) + "。确定要导入请再按一次 Enter"
+            return
+        self.confirm = None
         self.message = "正在导入……"
         self.area.tag_redraw()
         try:
@@ -687,6 +697,10 @@ class MB_OT_map_window(bpy.types.Operator):
                 s = context.scene.mineblend
                 n = (s.sel_max[0] - s.sel_min[0] + 1) * (s.sel_max[1] - s.sel_min[1] + 1) * (s.sel_max[2] - s.sel_min[2] + 1)
                 self.message = f"已框选 {s.sel_max[0] - s.sel_min[0] + 1}×{s.sel_max[2] - s.sel_min[2] + 1}，Y {s.sel_min[1]}~{s.sel_max[1]}（{n:,} 方块）· Enter 导入"
+                from . import importer
+                warn = importer.size_warnings(tuple(s.sel_min), tuple(s.sel_max), s.split_mode)
+                if warn:
+                    self.message = "⚠ " + "；".join(warn)
         elif event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS":
             self.do_import()
         elif event.type == "HOME" and event.value == "PRESS":
@@ -821,9 +835,14 @@ class MB_OT_map_window(bpy.types.Operator):
             rect(sx0, sy0, sx1, sy1, (1.0, 0.75, 0.1, 0.12))
             outline(sx0, sy0, sx1, sy1, (1.0, 0.75, 0.1, 1.0), 2.0)
             label = f"{x1 - x0 + 1} × {z1 - z0 + 1}"
+            big = False
             if sel and not dragging:
                 label += f"   剖面 Y {sel[0][1]} ~ {sel[1][1]}" + ("（加载中…）" if self.sec_pending else "")
-            text(sx0 + 4, sy1 + 6, label, 13, (1.0, 0.85, 0.3, 1))
+                from . import importer
+                big = bool(importer.size_warnings(sel[0], sel[1], ctx.scene.mineblend.split_mode))
+                if big:
+                    label += "   ⚠ 导入选区过大，请注意"
+            text(sx0 + 4, sy1 + 6, label, 13, (1.0, 0.45, 0.2, 1) if big else (1.0, 0.85, 0.3, 1))
 
         # 玩家
         if self.loader.player:

@@ -13,6 +13,23 @@ def S(context):
     return context.scene.mineblend
 
 
+WARN_VOLUME = 8_000_000   # 选区超过这么多方块时提醒（不阻止导入）
+WARN_OBJECTS = 20_000     # 按单个方块拆分时，可能超过这么多物体就提醒
+
+
+def size_warnings(mn, mx, mode):
+    """超大选区的提醒文字（空列表 = 没问题）。只提醒，不限制导入。"""
+    vol = 1
+    for i in range(3):
+        vol *= abs(mx[i] - mn[i]) + 1
+    out = []
+    if vol > WARN_VOLUME:
+        out.append(f"导入选区过大：{vol:,} 方块，导入可能很慢并占用大量内存，请注意")
+    if mode == "BLOCK" and vol > WARN_OBJECTS:
+        out.append("按单个方块拆分：可能生成上万个物体，Blender 可能会变得很卡")
+    return out
+
+
 def do_import(context, mn, mx, label):
     s = S(context)
     wm = context.window_manager
@@ -134,7 +151,7 @@ def do_import(context, mn, mx, label):
         name = f"MC_{label}_{ox}_{oy}_{oz}"
         base = Vector((-sx / 2.0, sz / 2.0, 0.0)) if s.recenter else Vector((ox, -oz, oy))
         mode = s.split_mode
-        created = build_objects(md, materials, h.get("blocks", []), mode, name, base, (ox, oy, oz), s.max_objects)
+        created = build_objects(md, materials, h.get("blocks", []), mode, name, base, (ox, oy, oz))
         for o in created:
             o["mc_min"] = [ox, oy, oz]
             o["mc_max"] = [ox + sx - 1, oy + sy - 1, oz + sz - 1]
@@ -153,6 +170,8 @@ def do_import(context, mn, mx, label):
         msg = (f"导入完成：{sx}×{sy}×{sz}，{len(created):,} 个物体，{md.faces:,} 面{merged}，{len(materials)} 种材质，{len(images)} 张贴图（动画 {n_anim}，PBR {n_pbr}）"
                f"（方块实体 {st.get('blockEntities', 0)}，实体 {st.get('entities', 0)}）"
                f" 游戏端 {t1 - t0:.1f}s / Blender {time.time() - t1:.1f}s")
+        if len(created) > WARN_OBJECTS:
+            msg += f"；生成了 {len(created):,} 个物体，Blender 可能会变卡"
         if st.get("missingChunks"):
             msg += f"；{st['missingChunks']} 个区块未生成/未加载，按空气处理"
         if st.get("failed"):
@@ -203,7 +222,7 @@ def _sub_mesh(md, faces, fstart, pivot):
     return m, used
 
 
-def build_objects(md, materials, blocks, mode, name, base, origin, max_objects):
+def build_objects(md, materials, blocks, mode, name, base, origin):
     root = bio.get_collection()
     if mode == "MERGED":
         obj = bio.make_mesh_object(name, md, materials, collection=root)
@@ -221,9 +240,6 @@ def build_objects(md, materials, blocks, mode, name, base, origin, max_objects):
         key = (fb << 48) | (p[:, 0] << 32) | (p[:, 1] << 16) | p[:, 2]
     order = np.argsort(key, kind="stable")
     ukeys, starts = np.unique(key[order], return_index=True)
-    if len(ukeys) > max_objects:
-        raise bridge.BridgeError(
-            f"拆分后会有 {len(ukeys):,} 个物体，超过上限 {max_objects:,}。请缩小选区，或在导入选项里调高「物体数上限」")
     ends = list(starts[1:]) + [nf]
 
     col = bpy.data.collections.new(name)

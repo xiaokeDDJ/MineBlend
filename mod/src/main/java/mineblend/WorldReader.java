@@ -3,23 +3,23 @@ package mineblend;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.SharedConstants;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.server.integrated.IntegratedServer;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.WorldSavePath;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.Heightmap;
-import net.minecraft.world.World;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.world.biome.BiomeKeys;
-import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.dimension.DimensionType;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.server.IntegratedServer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.dimension.DimensionType;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.storage.LevelResource;
 import mineblend.BridgeServer.ApiException;
 
 import java.io.IOException;
@@ -42,8 +42,8 @@ import java.util.function.Supplier;
 public final class WorldReader {
     private WorldReader() {}
 
-    static MinecraftClient mc() {
-        return MinecraftClient.getInstance();
+    static Minecraft mc() {
+        return Minecraft.getInstance();
     }
 
     static <T> T onClient(Supplier<T> fn) throws Exception {
@@ -51,38 +51,38 @@ public final class WorldReader {
     }
 
     /** 在拥有该世界的线程上执行（集成服务器线程或客户端渲染线程） */
-    static <T> T onWorld(Function<World, T> fn) throws Exception {
-        MinecraftClient mc = mc();
-        RegistryKey<World> key = onClient(() -> mc.world == null ? null : mc.world.getRegistryKey());
+    static <T> T onWorld(Function<Level, T> fn) throws Exception {
+        Minecraft mc = mc();
+        ResourceKey<Level> key = onClient(() -> mc.level == null ? null : mc.level.dimension());
         if (key == null) throw new ApiException("游戏当前不在世界中，请先进入存档");
-        IntegratedServer srv = mc.getServer();
+        IntegratedServer srv = mc.getSingleplayerServer();
         if (srv != null) {
-            ServerWorld sw = srv.getWorld(key);
+            ServerLevel sw = srv.getLevel(key);
             if (sw != null) return srv.submit(() -> fn.apply(sw)).get(600, TimeUnit.SECONDS);
         }
-        return mc.submit(() -> fn.apply(mc.world)).get(600, TimeUnit.SECONDS);
+        return mc.submit(() -> fn.apply(mc.level)).get(600, TimeUnit.SECONDS);
     }
 
     // ------------------------------------------------------------------ status / selection
 
     static JsonObject status() throws Exception {
         return onClient(() -> {
-            MinecraftClient mc = mc();
+            Minecraft mc = mc();
             JsonObject o = new JsonObject();
             o.addProperty("ok", true);
             o.addProperty("mod", "mineblend");
             o.addProperty("modVersion", net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("mineblend")
                     .map(m -> m.getMetadata().getVersion().getFriendlyString()).orElse("?"));
-            o.addProperty("mcVersion", SharedConstants.getGameVersion().getName());
-            o.addProperty("inWorld", mc.world != null && mc.player != null);
-            if (mc.world != null && mc.player != null) {
-                o.addProperty("dimension", mc.world.getRegistryKey().getValue().toString());
-                o.addProperty("singleplayer", mc.getServer() != null);
-                if (mc.getServer() != null) o.addProperty("worldName", mc.getServer().getSaveProperties().getLevelName());
-                o.addProperty("minY", mc.world.getBottomY());
-                o.addProperty("maxY", mc.world.getTopY() - 1);
-                o.add("player", arr(mc.player.getBlockPos()));
-                o.addProperty("yaw", mc.player.getYaw());
+            o.addProperty("mcVersion", Mc.gameVersion());
+            o.addProperty("inWorld", mc.level != null && mc.player != null);
+            if (mc.level != null && mc.player != null) {
+                o.addProperty("dimension", Mc.dimensionId(mc.level));
+                o.addProperty("singleplayer", mc.getSingleplayerServer() != null);
+                if (mc.getSingleplayerServer() != null) o.addProperty("worldName", mc.getSingleplayerServer().getWorldData().getLevelName());
+                o.addProperty("minY", Mc.minY(mc.level));
+                o.addProperty("maxY", Mc.maxY(mc.level));
+                o.add("player", arr(mc.player.blockPosition()));
+                o.addProperty("yaw", mc.player.getYRot());
             }
             return o;
         });
@@ -100,13 +100,13 @@ public final class WorldReader {
 
     static JsonObject setSelection(int x1, int y1, int z1, int x2, int y2, int z2) throws Exception {
         return onClient(() -> {
-            MinecraftClient mc = mc();
-            if (mc.world == null) throw new ApiException("游戏当前不在世界中");
-            Selection.setBoth(new BlockPos(x1, y1, z1), new BlockPos(x2, y2, z2), mc.world.getRegistryKey().getValue().toString());
+            Minecraft mc = mc();
+            if (mc.level == null) throw new ApiException("游戏当前不在世界中");
+            Selection.setBoth(new BlockPos(x1, y1, z1), new BlockPos(x2, y2, z2), Mc.dimensionId(mc.level));
             if (mc.player != null) {
                 int[] s = Selection.size();
-                mc.player.sendMessage(Text.literal(String.format("§6[MineBlend]§r Blender 已设置选区 §b%d %d %d §r→ §b%d %d %d §7(%d×%d×%d)",
-                        x1, y1, z1, x2, y2, z2, s[0], s[1], s[2])), false);
+                Mc.chat(mc.player, Component.literal(String.format("§6[MineBlend]§r Blender 已设置选区 §b%d %d %d §r→ §b%d %d %d §7(%d×%d×%d)",
+                        x1, y1, z1, x2, y2, z2, s[0], s[1], s[2])));
             }
             return selection();
         });
@@ -124,37 +124,37 @@ public final class WorldReader {
 
     /** 已加载 → 直接用；单人存档里已存在（region 文件里有）→ 从磁盘加载；从未生成 → null（当空气），不触发地形生成 */
     static final class ChunkSource {
-        final World world;
-        final Map<Long, Chunk> cache = new HashMap<>();
+        final Level world;
+        final Map<Long, ChunkAccess> cache = new HashMap<>();
         final Map<Long, int[]> regionHeaders = new HashMap<>();
         Path regionDir;
         int missing;
 
-        ChunkSource(World world) {
+        ChunkSource(Level world) {
             this.world = world;
-            if (world instanceof ServerWorld sw) {
-                Path root = sw.getServer().getSavePath(WorldSavePath.ROOT);
-                regionDir = DimensionType.getSaveDirectory(sw.getRegistryKey(), root).resolve("region");
+            if (world instanceof ServerLevel sw) {
+                Path root = sw.getServer().getWorldPath(LevelResource.ROOT);
+                regionDir = DimensionType.getStorageFolder(sw.dimension(), root).resolve("region");
             }
         }
 
-        Chunk get(int cx, int cz) {
+        ChunkAccess get(int cx, int cz) {
             long key = ((long) cx << 32) ^ (cz & 0xffffffffL);
             if (cache.containsKey(key)) return cache.get(key);
-            Chunk c = load(cx, cz);
+            ChunkAccess c = load(cx, cz);
             if (c == null) missing++;
             cache.put(key, c);
             return c;
         }
 
-        private Chunk load(int cx, int cz) {
-            if (world instanceof ServerWorld sw) {
-                Chunk loaded = sw.getChunkManager().getWorldChunk(cx, cz);
+        private ChunkAccess load(int cx, int cz) {
+            if (world instanceof ServerLevel sw) {
+                ChunkAccess loaded = sw.getChunkSource().getChunkNow(cx, cz);
                 if (loaded != null) return loaded;
                 if (!existsOnDisk(cx, cz)) return null;
                 return sw.getChunk(cx, cz);
             }
-            return world.getChunkManager().isChunkLoaded(cx, cz) ? world.getChunk(cx, cz) : null;
+            return world.getChunkSource().hasChunk(cx, cz) ? world.getChunk(cx, cz) : null;
         }
 
         private boolean existsOnDisk(int cx, int cz) {
@@ -177,19 +177,19 @@ public final class WorldReader {
             }
         }
 
-        RegistryEntry<Biome> biome(int x, int y, int z, RegistryEntry<Biome> fallback) {
-            Chunk c = get(x >> 4, z >> 4);
+        Holder<Biome> biome(int x, int y, int z, Holder<Biome> fallback) {
+            ChunkAccess c = get(x >> 4, z >> 4);
             if (c == null) return fallback;
             try {
-                return c.getBiomeForNoiseGen(x >> 2, y >> 2, z >> 2);
+                return c.getNoiseBiome(x >> 2, y >> 2, z >> 2);
             } catch (Throwable t) {
                 return fallback;
             }
         }
     }
 
-    static RegistryEntry<Biome> plains(World w) {
-        return w.getRegistryManager().get(RegistryKeys.BIOME).entryOf(BiomeKeys.PLAINS);
+    static Holder<Biome> plains(Level w) {
+        return Mc.plains(w);
     }
 
     static final class PaletteBuilder {
@@ -197,7 +197,7 @@ public final class WorldReader {
         final List<BlockState> states = new ArrayList<>();
 
         PaletteBuilder() {
-            states.add(Blocks.AIR.getDefaultState());
+            states.add(Blocks.AIR.defaultBlockState());
         }
 
         int idOf(BlockState st) {
@@ -222,31 +222,36 @@ public final class WorldReader {
 
         // 1) 世界线程：拍快照（外扩 1 格用于剔除相邻面）
         Object[] snap = onWorld(w -> {
-            int minY = Math.max(minYReq, w.getBottomY());
-            int maxY = Math.min(maxYReq, w.getTopY() - 1);
+            int minY = Math.max(minYReq, Mc.minY(w));
+            int maxY = Math.min(maxYReq, Mc.maxY(w));
             if (maxY < minY) throw new ApiException("选区的 Y 范围不在世界高度内");
             int sx = maxX - minX + 1, sy = maxY - minY + 1, sz = maxZ - minZ + 1;
-            long vol = (long) sx * sy * sz;
-            if (vol > MineBlendClient.CONFIG.maxVolume)
-                throw new ApiException(String.format("选区过大: %,d 方块（上限 %,d，可在 config/mineblend.json 修改 maxVolume）", vol, MineBlendClient.CONFIG.maxVolume));
+            long padded = (long) (sx + 2) * (sy + 2) * (sz + 2);
+            if (padded > Integer.MAX_VALUE - 16)
+                throw new ApiException(String.format("选区过大: %,d 方块，超过单次能处理的最大范围（约 21 亿方块），请分几次导入", (long) sx * sy * sz));
 
             int px0 = minX - 1, py0 = minY - 1, pz0 = minZ - 1;
             int psx = sx + 2, psy = sy + 2, psz = sz + 2;
-            short[] ids = new short[psx * psy * psz];
+            short[] ids;
+            try {
+                ids = new short[psx * psy * psz];
+            } catch (OutOfMemoryError e) {
+                throw new ApiException(String.format("游戏内存不足，无法读取 %,d 方块的选区，请缩小选区或分几次导入", (long) sx * sy * sz));
+            }
             PaletteBuilder pal = new PaletteBuilder();
             ChunkSource src = new ChunkSource(w);
-            BlockPos.Mutable mp = new BlockPos.Mutable();
-            int wBottom = w.getBottomY(), wTop = w.getTopY() - 1;
+            BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+            int wBottom = Mc.minY(w), wTop = Mc.maxY(w);
             for (int cx = px0 >> 4; cx <= (px0 + psx - 1) >> 4; cx++) {
                 for (int cz = pz0 >> 4; cz <= (pz0 + psz - 1) >> 4; cz++) {
-                    Chunk c = src.get(cx, cz);
+                    ChunkAccess c = src.get(cx, cz);
                     if (c == null) continue;
                     int xa = Math.max(px0, cx << 4), xb = Math.min(px0 + psx - 1, (cx << 4) + 15);
                     int za = Math.max(pz0, cz << 4), zb = Math.min(pz0 + psz - 1, (cz << 4) + 15);
                     for (int y = Math.max(py0, wBottom); y <= Math.min(py0 + psy - 1, wTop); y++) {
                         boolean padY = y < minY || y > maxY;
                         int si = c.getSectionIndex(y);
-                        if (si >= 0 && si < c.getSectionArray().length && c.getSectionArray()[si].isEmpty()) continue;
+                        if (si >= 0 && si < c.getSections().length && c.getSections()[si].hasOnlyAir()) continue;
                         for (int z = za; z <= zb; z++) {
                             boolean padZ = z < minZ || z > maxZ;
                             int base = ((y - py0) * psz + (z - pz0)) * psx - px0;
@@ -264,15 +269,15 @@ public final class WorldReader {
             // 群系（每 4×4 列一个，取选区中部高度）
             int bx = (psx + 3) / 4, bz = (psz + 3) / 4;
             @SuppressWarnings("unchecked")
-            RegistryEntry<Biome>[] biomes = new RegistryEntry[bx * bz];
-            RegistryEntry<Biome> fallback = plains(w);
+            Holder<Biome>[] biomes = new Holder[bx * bz];
+            Holder<Biome> fallback = plains(w);
             int midY = (minY + maxY) / 2;
             for (int j = 0; j < bz; j++)
                 for (int i = 0; i < bx; i++)
                     biomes[j * bx + i] = src.biome(px0 + i * 4 + 1, midY, pz0 + j * 4 + 1, fallback);
 
             SnapshotView view = new SnapshotView(px0, py0, pz0, psx, psy, psz, ids,
-                    pal.states.toArray(new BlockState[0]), biomes, bx, bz, w.getBottomY(), w.getHeight(), w.getLightingProvider());
+                    pal.states.toArray(new BlockState[0]), biomes, bx, bz, Mc.minY(w), w.getHeight(), w.getLightEngine());
             return new Object[]{view, new int[]{minY, sx, sy, sz, src.missing}};
         });
         SnapshotView view = (SnapshotView) snap[0];
@@ -292,12 +297,12 @@ public final class WorldReader {
         int[] capStats = new int[3];
         if (opts.blockEntities() || opts.entities()) {
             onClient(() -> {
-                MinecraftClient mc = mc();
-                if (mc.world == null) return null;
+                Minecraft mc = mc();
+                if (mc.level == null) return null;
                 Capture cap = new Capture(out, tex);
                 int mx = minX + sx - 1, my = minY + sy - 1, mz = minZ + sz - 1;
-                if (opts.blockEntities()) cap.captureBlockEntities(mc.world, minX, minY, minZ, mx, my, mz);
-                if (opts.entities()) cap.captureEntities(mc.world, minX, minY, minZ, mx, my, mz, opts.mobs());
+                if (opts.blockEntities()) cap.captureBlockEntities(mc.level, minX, minY, minZ, mx, my, mz);
+                if (opts.entities()) cap.captureEntities(mc.level, minX, minY, minZ, mx, my, mz, opts.mobs());
                 capStats[0] = cap.blockEntities;
                 capStats[1] = cap.entities;
                 capStats[2] = cap.failed;
@@ -459,22 +464,22 @@ public final class WorldReader {
             short[] heights = new short[nx * nz];
             short[] ids = new short[nx * nz];
             @SuppressWarnings("unchecked")
-            RegistryEntry<Biome>[] biomes = new RegistryEntry[nx * nz];
+            Holder<Biome>[] biomes = new Holder[nx * nz];
             ChunkSource src = new ChunkSource(w);
-            RegistryEntry<Biome> fallback = plains(w);
-            BlockPos.Mutable mp = new BlockPos.Mutable();
-            int bottom = w.getBottomY();
+            Holder<Biome> fallback = plains(w);
+            BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+            int bottom = Mc.minY(w);
             for (int iz = 0; iz < nz; iz++) {
                 for (int ix = 0; ix < nx; ix++) {
                     int x = minX + ix * step, z = minZ + iz * step;
                     int k = iz * nx + ix;
-                    Chunk c = src.get(x >> 4, z >> 4);
+                    ChunkAccess c = src.get(x >> 4, z >> 4);
                     if (c == null) {
                         heights[k] = Short.MIN_VALUE;
                         continue;
                     }
-                    int top = c.sampleHeightmap(Heightmap.Type.WORLD_SURFACE, x & 15, z & 15);
-                    BlockState st = top >= bottom ? c.getBlockState(mp.set(x, top, z)) : Blocks.AIR.getDefaultState();
+                    int top = c.getHeight(Heightmap.Types.WORLD_SURFACE, x & 15, z & 15);
+                    BlockState st = top >= bottom ? c.getBlockState(mp.set(x, top, z)) : Blocks.AIR.defaultBlockState();
                     // 跳过顶上的花草等无碰撞装饰，取下面的地面
                     for (int i = 0; i < 4 && top > bottom && st.getFluidState().isEmpty()
                             && st.getCollisionShape(w, mp).isEmpty() && !st.isAir(); i++) {
@@ -494,7 +499,7 @@ public final class WorldReader {
         short[] heights = (short[]) res[1];
         short[] ids = (short[]) res[2];
         @SuppressWarnings("unchecked")
-        RegistryEntry<Biome>[] biomes = (RegistryEntry<Biome>[]) res[3];
+        Holder<Biome>[] biomes = (Holder<Biome>[]) res[3];
         int bottom = (int) res[4];
 
         TopView.Result img = new TopView(palette).render(heights, ids, biomes, nx, nz, step, ppb, minX, minZ, bottom);
@@ -537,35 +542,35 @@ public final class WorldReader {
             it.unimi.dsi.fastutil.shorts.ShortArrayList ys = new it.unimi.dsi.fastutil.shorts.ShortArrayList();
             it.unimi.dsi.fastutil.shorts.ShortArrayList ids = new it.unimi.dsi.fastutil.shorts.ShortArrayList();
             short[] biomeOf = new short[n];
-            List<RegistryEntry<Biome>> biomes = new ArrayList<>();
-            Map<RegistryEntry<Biome>, Integer> biomeIdx = new HashMap<>();
+            List<Holder<Biome>> biomes = new ArrayList<>();
+            Map<Holder<Biome>, Integer> biomeIdx = new HashMap<>();
             ChunkSource src = new ChunkSource(w);
-            RegistryEntry<Biome> fallback = plains(w);
-            int bottom = w.getBottomY();
+            Holder<Biome> fallback = plains(w);
+            int bottom = Mc.minY(w);
             for (int iz = 0; iz < nz; iz++) {
                 for (int ix = 0; ix < nx; ix++) {
                     int k = iz * nx + ix;
                     offs[k] = ys.size();
                     int x = minX + ix * step, z = minZ + iz * step;
-                    Chunk c = src.get(x >> 4, z >> 4);
+                    ChunkAccess c = src.get(x >> 4, z >> 4);
                     if (c == null) continue;
                     int lx = x & 15, lz = z & 15;
-                    int surf = c.sampleHeightmap(Heightmap.Type.WORLD_SURFACE, lx, lz);
-                    net.minecraft.world.chunk.ChunkSection[] secs = c.getSectionArray();
+                    int surf = c.getHeight(Heightmap.Types.WORLD_SURFACE, lx, lz);
+                    net.minecraft.world.level.chunk.LevelChunkSection[] secs = c.getSections();
                     int prev = -1;
                     for (int y = bottom; y <= surf; y++) {
                         int si = c.getSectionIndex(y);
                         if (si < 0 || si >= secs.length) break;
-                        net.minecraft.world.chunk.ChunkSection sec = secs[si];
+                        net.minecraft.world.level.chunk.LevelChunkSection sec = secs[si];
                         int id;
-                        if (sec == null || sec.isEmpty()) {
+                        if (sec == null || sec.hasOnlyAir()) {
                             id = 0;
                             if (prev != 0) {
                                 ys.add((short) y);
                                 ids.add((short) 0);
                                 prev = 0;
                             }
-                            y = (c.sectionIndexToCoord(si) << 4) + 15; // 跳过整个空段
+                            y = (c.getSectionYFromSectionIndex(si) << 4) + 15; // 跳过整个空段
                             continue;
                         }
                         id = pal.idOf(sec.getBlockState(lx, y & 15, lz));
@@ -577,7 +582,7 @@ public final class WorldReader {
                     }
                     ys.add((short) (surf + 1));
                     ids.add((short) 0);
-                    RegistryEntry<Biome> b = src.biome(x, surf, z, fallback);
+                    Holder<Biome> b = src.biome(x, surf, z, fallback);
                     Integer bi = biomeIdx.get(b);
                     if (bi == null) {
                         bi = biomes.size();
@@ -596,7 +601,7 @@ public final class WorldReader {
         short[] ids = (short[]) res[3];
         short[] biomeOf = (short[]) res[4];
         @SuppressWarnings("unchecked")
-        List<RegistryEntry<Biome>> biomes = (List<RegistryEntry<Biome>>) res[5];
+        List<Holder<Biome>> biomes = (List<Holder<Biome>>) res[5];
         int bottom = (int) res[6];
 
         TopView tv = new TopView(palette);
@@ -607,7 +612,7 @@ public final class WorldReader {
         for (int i = 0; i < P; i++) {
             BlockState st = palette[i];
             boolean decor = !st.isAir() && st.getFluidState().isEmpty()
-                    && st.getCollisionShape(net.minecraft.world.EmptyBlockView.INSTANCE, BlockPos.ORIGIN).isEmpty();
+                    && st.getCollisionShape(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
             // 空气、没有可画的顶面、无碰撞的装饰（花草、火把等）在剖面里当作透明，显示下面的方块
             if (st.isAir() || decor || !tv.tile(i, fppb, tiles, i * fppb * fppb * 4)) empty.add(i);
             for (int b = 0; b < B; b++) tint.putInt(biomes.isEmpty() ? 0xFFFFFF : tv.tintColor(i, biomes.get(b)));

@@ -25,3 +25,7 @@ mod/dev.gradle
 *.pem
 *token*
 *secret*
+
+# 多版本构建的生成目录 / Stonecutter generated per-version dirs
+mod/versions/
+mod/src/devtest/

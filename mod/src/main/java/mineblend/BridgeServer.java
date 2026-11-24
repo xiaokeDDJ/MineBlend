@@ -144,7 +144,10 @@ public final class BridgeServer {
                 MineBlendClient.LOG.error("[MineBlend] 请求处理失败: {}", target, e);
                 JsonObject o = new JsonObject();
                 o.addProperty("ok", false);
-                o.addProperty("error", e.getClass().getSimpleName() + ": " + e.getMessage());
+                o.addProperty("error", isOutOfMemory(e)
+                        ? String.format("游戏内存不足（当前最多 %d MB），这个选区太大了。请缩小选区、分几次导入，或在启动器里给游戏分配更多内存",
+                                Runtime.getRuntime().maxMemory() >> 20)
+                        : e.getClass().getSimpleName() + ": " + e.getMessage());
                 r = Response.json(500, o);
             }
 
@@ -194,6 +197,14 @@ public final class BridgeServer {
         }
         if (c == -1 && b.size() == 0) return null;
         return b.toString(StandardCharsets.UTF_8);
+    }
+
+    /** 异常链里有没有内存不足（世界线程上的错误会被包一层再抛出来） */
+    static boolean isOutOfMemory(Throwable e) {
+        for (int i = 0; e != null && i < 10; i++, e = e.getCause()) {
+            if (e instanceof OutOfMemoryError) return true;
+        }
+        return false;
     }
 
     static int intArg(Map<String, String> q, String k) {

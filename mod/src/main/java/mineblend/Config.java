@@ -16,8 +16,8 @@ public class Config {
     public String bindAddress = "127.0.0.1";
     /** 除「选区棒」外额外当作选区工具的物品 id（留空 = 只用选区棒），例如 "minecraft:blaze_rod" */
     public String extraWandItem = "";
-    /** 单次导出的最大方块数（防止误选超大区域卡死游戏） */
-    public long maxVolume = 32_000_000L;
+    /** 选区超过这个方块数时在游戏里提醒「选区过大」（只是提醒，不会阻止导入） */
+    public long warnVolume = 8_000_000L;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 

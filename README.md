@@ -43,7 +43,7 @@ MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工
 
 | 部分 | 运行在 | 作用 |
 |---|---|---|
-| **MineBlend mod**（`mineblend-<版本>.jar`） | Minecraft 1.20.1（Fabric） | 选区棒；在本机开一个只读接口，把游戏里的方块模型、贴图、方块实体和实体交给 Blender |
+| **MineBlend mod**（`mineblend-<版本>+mc<MC版本>.jar`） | Minecraft 1.20.1 / 1.21.11 / 26.3（Fabric） | 选区棒；在本机开一个只读接口，把游戏里的方块模型、贴图、方块实体和实体交给 Blender |
 | **MineBlend Blender 插件**（`mineblend-blender-<版本>.zip`） | Blender 4.0 ~ 5.3 | 地图选区窗口；生成网格和原理化 BSDF 材质 |
 
 ## 全部功能
@@ -66,8 +66,16 @@ MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工
 
 ### 1. Minecraft mod
 
-- 环境：Minecraft **1.20.1** + **Fabric Loader** + **Fabric API**
-- 把 `mineblend-<版本>.jar` 放进游戏的 `mods` 文件夹。
+- 环境：**Fabric Loader** + 对应版本的 **Fabric API**
+- 按游戏版本选一个 jar，放进该版本的 `mods` 文件夹：
+
+| Minecraft | mod 文件 | Java |
+|---|---|---|
+| 1.20.1 | `mineblend-<版本>+mc1.20.1.jar` | 17 及以上 |
+| 1.21.11 | `mineblend-<版本>+mc1.21.11.jar` | 21 及以上 |
+| 26.3 | `mineblend-<版本>+mc26.3.jar` | 25 及以上 |
+
+三个版本功能相同，Blender 插件通用。
 
 ### 2. Blender 插件
 
@@ -110,7 +118,7 @@ MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工
 
 | 选项 | 说明 |
 |---|---|
-| 导入方式 | 合并为一个物体 / 按方块类型拆分 / 按单个方块拆分（有物体数上限，默认 20000） |
+| 导入方式 | 合并为一个物体 / 按方块类型拆分 / 按单个方块拆分 |
 | 植物、流体、方块实体、物品/装饰实体、生物 | 选择要包含的内容 |
 | 合并相邻同材质面 | 把相邻的整格方块面合并成大面；这些材质的贴图改为平铺。需要做贴图绘制或烘焙时可以关掉 |
 | 统一随机方向 | 草方块、泥土、沙子等方块每格贴图方向是随机的，开启后合并时不区分方向，面数少得多（合并后的大面贴图方向统一）；关闭则保留每格的随机方向 |
@@ -126,7 +134,7 @@ MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工
 |---|---|---|
 | `port` | `25599` | 接口端口 |
 | `bindAddress` | `127.0.0.1` | 监听地址，默认只允许本机访问 |
-| `maxVolume` | `32000000` | 单次导出的方块数上限 |
+| `warnVolume` | `8000000` | 选区超过这么多方块时在游戏里提醒「导入选区过大」（只提醒，不限制导入） |
 | `extraWandItem` | `""` | 额外当作选区工具的物品 ID，例如 `minecraft:blaze_rod` |
 
 ## 安全说明
@@ -141,19 +149,21 @@ MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工
 
 - 方块实体和实体只能读取客户端已加载的部分（渲染距离内）。
 - 多人服务器上只能读取客户端已加载的区块。
+- 导入大小没有限制，超大选区会先提醒；选区大到游戏内存不够时会提示「游戏内存不足」，请缩小选区或给游戏分配更多内存。
 - 动态贴图（地图画、联网皮肤、告示牌文字）、光影包效果、OptiFine CTM 连接纹理不导出。
 - 动画贴图是磁盘上的图像序列，无法打包进 `.blend`：已保存的 `.blend` 会写到它旁边的 `mc_anim/` 文件夹，移动工程时请一起拷贝。
 
 ## 从源码构建
 
-- **mod**：需要 JDK 17 或更高版本（推荐 21）。
+- **mod**：一套源码用 [Stonecutter](https://stonecutter.kikugie.dev/) 同时构建 1.20.1 / 1.21.11 / 26.3 三个版本。需要 JDK 25 运行 Gradle（26.3 要求）；构建 1.20.1 和 1.21.11 时会编译成 Java 17 / 21 的字节码。
 
   ```bash
   cd mod
-  ./gradlew build
+  ./gradlew chiseledBuild      # 构建全部版本，jar 收集到 mod/build/libs/
+  ./gradlew :1.21.11:build     # 只构建某一个版本
   ```
 
-  产物在 `mod/build/libs/`。
+  源码以 1.20.1 为基准，其它版本的差异写在 `//? if` 条件注释里，零散的接口差异集中在 `Mc.java`，方块模型的差异集中在 `Models.java`。
 
 - **Blender 插件**：`blender/mineblend/` 就是插件本身。
   - 4.2 及以上：把这个目录里的文件（`blender_manifest.toml` 在 zip 根目录）打成 zip，用「从磁盘安装」。
@@ -172,7 +182,7 @@ MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工
 **Clean import is the core idea.** Every material is just *Image Texture → Principled BSDF*: no node groups, no mix nodes, no custom shaders. Biome tints are baked into the textures. The selection never creates helper objects. Shading is flat, and textures use closest-pixel interpolation. Extra PBR nodes are added only when a LabPBR resource pack is active, and you can turn them off.
 
 - Renamed from Mine2Blend in 1.1.0 (mod/extension id `mineblend`, command `/mb`). Uninstall the old Mine2Blend add-on and remove `mine2blend-*.jar` when upgrading.
-- **Mod** (Minecraft 1.20.1, Fabric + Fabric API): adds a selection wand (`/mb wand`; left click = point 1, right click = point 2, works on distant blocks up to 512 away) and a read-only local HTTP interface (`127.0.0.1:25599` by default) that serves block models, textures, block entities and entities.
+- **Mod** (Minecraft 1.20.1 / 1.21.11 / 26.3, Fabric + Fabric API; one jar per Minecraft version): adds a selection wand (`/mb wand`; left click = point 1, right click = point 2, works on distant blocks up to 512 away) and a read-only local HTTP interface (`127.0.0.1:25599` by default) that serves block models, textures, block entities and entities.
 - **Blender add-on** (Blender 4.0 – 5.3): opens a standalone top-down map window of the live world. Drag to select an area, press Enter to import. The Y range fields can be dragged or typed into, and the selection shows a live cross-section of that height range. You can also import the in-game wand selection.
 - Real block models, including modded blocks. Textures come from the game's active resource packs, with LabPBR normal/specular support. Animated textures are imported as image sequences. Materials are Image Texture → Principled BSDF with flat shading.
 - Three import modes (merged, split by block type, split per block). An optional greedy merge of adjacent faces with the same material cuts the face count. Randomly rotated textures (grass, dirt, sand) can be merged too.

@@ -1,35 +1,35 @@
 package mineblend;
 
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.fluid.FluidState;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.world.BlockRenderView;
-import net.minecraft.world.biome.Biome;
-import net.minecraft.world.biome.ColorResolver;
-import net.minecraft.world.chunk.light.LightingProvider;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.world.level.BlockAndTintGetter;
+import net.minecraft.world.level.ColorResolver;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.lighting.LevelLightEngine;
+import net.minecraft.world.level.material.FluidState;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * 选区（外扩 1 格）的方块快照，可在任意线程上安全读取，用于剔除相邻面和计算群系染色。
  * 坐标为世界坐标；快照范围外一律视为空气。
  */
-final class SnapshotView implements BlockRenderView {
-    static final BlockState AIR = Blocks.AIR.getDefaultState();
+final class SnapshotView implements BlockAndTintGetter {
+    static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
     final int x0, y0, z0, sx, sy, sz;      // 含外扩的范围
     final short[] ids;                     // 调色板索引，order: ((y*sz)+z)*sx+x
     final BlockState[] palette;
-    final RegistryEntry<Biome>[] biomes;   // 每 4×4 列一个（含外扩）
+    final Holder<Biome>[] biomes;   // 每 4×4 列一个（含外扩）
     final int bx, bz;                      // biomes 网格尺寸
     final int bottomY, height;
-    final LightingProvider light;
+    final LevelLightEngine light;
 
     SnapshotView(int x0, int y0, int z0, int sx, int sy, int sz, short[] ids, BlockState[] palette,
-                 RegistryEntry<Biome>[] biomes, int bx, int bz, int bottomY, int height, LightingProvider light) {
+                 Holder<Biome>[] biomes, int bx, int bz, int bottomY, int height, LevelLightEngine light) {
         this.x0 = x0;
         this.y0 = y0;
         this.z0 = z0;
@@ -52,7 +52,7 @@ final class SnapshotView implements BlockRenderView {
         return palette[ids[(ly * sz + lz) * sx + lx] & 0xFFFF];
     }
 
-    RegistryEntry<Biome> biome(int x, int z) {
+    Holder<Biome> biome(int x, int z) {
         int cx = Math.max(0, Math.min(bx - 1, (x - x0) >> 2));
         int cz = Math.max(0, Math.min(bz - 1, (z - z0) >> 2));
         return biomes[cz * bx + cx];
@@ -80,23 +80,34 @@ final class SnapshotView implements BlockRenderView {
     }
 
     @Override
-    public int getBottomY() {
+    //? if <1.21.2 {
+    public int getMinBuildHeight() {
+    //?} else {
+    /*public int getMinY() {
+    *///?}
         return bottomY;
     }
 
+    //? if <26.1 {
     @Override
-    public float getBrightness(Direction direction, boolean shaded) {
+    public float getShade(Direction direction, boolean shaded) {
         return 1f;
     }
+    //?} else {
+    /*@Override
+    public net.minecraft.world.level.CardinalLighting cardinalLighting() {
+        return net.minecraft.world.level.CardinalLighting.DEFAULT;
+    }
+    *///?}
 
     @Override
-    public LightingProvider getLightingProvider() {
+    public LevelLightEngine getLightEngine() {
         return light;
     }
 
     @Override
-    public int getColor(BlockPos pos, ColorResolver resolver) {
-        RegistryEntry<Biome> b = biome(pos.getX(), pos.getZ());
+    public int getBlockTint(BlockPos pos, ColorResolver resolver) {
+        Holder<Biome> b = biome(pos.getX(), pos.getZ());
         if (b == null) return 0xFFFFFF;
         return resolver.getColor(b.value(), pos.getX(), pos.getZ());
     }

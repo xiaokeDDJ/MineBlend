@@ -10,7 +10,7 @@
 bl_info = {
     "name": "MineBlend",
     "author": "MineBlend contributors",
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "blender": (4, 0, 0),
     "location": "3D 视图 > 侧边栏(N) > MineBlend",
     "description": "从正在运行的 Minecraft 实时导入带贴图的地图网格",
@@ -76,8 +76,6 @@ class MB_Settings(PropertyGroup):
     show_sel_3d: BoolProperty(name="在 3D 视图显示选区", default=True, update=_redraw)
 
     split_mode: EnumProperty(name="导入方式", items=importer.SPLIT_ITEMS, default="MERGED")
-    max_objects: IntProperty(name="物体数上限", default=20000, min=1, max=1000000,
-                             description="拆分导入时最多生成多少个物体，超过则取消导入（避免 Blender 卡死）")
 
     include_plants: BoolProperty(name="植物", default=True, description="花草、作物、树苗等")
     include_fluids: BoolProperty(name="流体", default=True, description="水和岩浆（以及模组流体）")
@@ -158,7 +156,27 @@ class MB_OT_check(Operator):
 class MB_OT_import_selection(Operator):
     bl_idname = "mineblend.import_selection"
     bl_label = "导入选区"
-    bl_description = "导入当前选区"
+    bl_description = "导入当前选区（选区很大时会先提醒）"
+
+    @staticmethod
+    def _warnings(context):
+        s = S(context)
+        if not s.has_sel:
+            return []
+        mn, mx = _sel(s)
+        return importer.size_warnings(mn, mx, s.split_mode)
+
+    def invoke(self, context, event):
+        if self._warnings(context):
+            return context.window_manager.invoke_props_dialog(self, width=460)
+        return self.execute(context)
+
+    def draw(self, context):
+        col = self.layout.column(align=True)
+        for line in self._warnings(context):
+            col.label(text=line, icon="ERROR")
+        col.separator()
+        col.label(text="确定要继续导入吗？")
 
     def execute(self, context):
         s = S(context)
@@ -270,6 +288,15 @@ class MB_PT_selection(_Base, Panel):
             sub = lay.column(align=True)
             sub.scale_y = 0.8
             sub.label(text=f"大小 {size[0]}×{size[1]}×{size[2]} = {size[0] * size[1] * size[2]:,} 方块")
+            warn = importer.size_warnings(mn, mx, s.split_mode)
+            if warn:
+                box = lay.box()
+                wc = box.column(align=True)
+                wc.scale_y = 0.8
+                wc.alert = True
+                for w in warn:
+                    for i, line in enumerate(_wrap(w, 26)):
+                        wc.label(text=line, icon="ERROR" if i == 0 else "BLANK1")
             row = lay.row(align=True)
             row.prop(s, "show_sel_3d", text="显示线框", toggle=True)
             row.operator("mineblend.sel_clear", icon="X", text="清除")
@@ -296,8 +323,6 @@ class MB_PT_options(_Base, Panel):
         col.prop(s, "include_entities")
         col.prop(s, "include_mobs")
         lay.prop(s, "split_mode")
-        if s.split_mode != "MERGED":
-            lay.prop(s, "max_objects")
         col = lay.column(align=True)
         col.prop(s, "map_auto_y")
         col.prop(s, "cull_boundary")
