@@ -10,7 +10,7 @@
 bl_info = {
     "name": "MineBlend",
     "author": "MineBlend contributors",
-    "version": (1, 2, 0),
+    "version": (1, 2, 1),
     "blender": (4, 0, 0),
     "location": "3D 视图 > 侧边栏(N) > MineBlend",
     "description": "从正在运行的 Minecraft 实时导入带贴图的地图网格",

@@ -39,13 +39,15 @@ def do_import(context, mn, mx, label):
         params = dict(x1=mn[0], y1=mn[1], z1=mn[2], x2=mx[0], y2=mx[1], z2=mx[2],
                       plants=int(s.include_plants), fluids=int(s.include_fluids),
                       blockEntities=int(s.include_block_entities), entities=int(s.include_entities),
-                      mobs=int(s.include_mobs), cull=int(s.cull_boundary))
+                      mobs=int(s.include_mobs), cull=int(s.cull_boundary),
+                      # 按单个方块拆分：不剔除方块之间的面，每个方块都是完整的封闭模型（可单独移动）
+                      inner=0 if s.split_mode == "BLOCK" else 1)
         pk = bridge.get_packet(s.host, s.port, "/export", params, timeout=1800)
         h = pk.header
         wm.progress_update(40)
         t1 = time.time()
 
-        md = mesher.assemble(pk, merge=s.merge_vertices)
+        md = mesher.assemble(pk, merge=s.merge_vertices, keep_block_faces=s.split_mode == "BLOCK")
         if md.faces == 0:
             raise bridge.BridgeError("选区内没有可见的方块或实体（可能全是空气，或区块未生成）")
         wm.progress_update(60)

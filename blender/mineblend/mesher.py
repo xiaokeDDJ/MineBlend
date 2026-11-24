@@ -24,7 +24,7 @@ class MeshData:
         return len(self.face_size)
 
 
-def assemble(packet, merge=True):
+def assemble(packet, merge=True, keep_block_faces=False):
     mats = packet.header.get("materials", [])
     mat_alpha = np.array([bool(m.get("alpha")) for m in mats] + [False], bool)
     h = packet.header
@@ -43,13 +43,15 @@ def assemble(packet, merge=True):
     sec = packet.header["sections"]
     fb = arr("faceBlock", "<i4", nf) if "faceBlock" in sec else np.zeros(nf, np.int32)
     fp = arr("facePos", "<i4", nf * 3).reshape(nf, 3) if "facePos" in sec else np.zeros((nf, 3), np.int32)
-    return build(pos, uv, fs, fm, fc, merge, mat_alpha, fb, fp)
+    return build(pos, uv, fs, fm, fc, merge, mat_alpha, fb, fp, keep_block_faces)
 
 
 PUSH = 0.002  # 重合但不能合成的面（墙上的涂鸦、水渍等贴花）沿法线推出的距离（方块）
 
 
-def build(pos, uv, fs, fm, fc, merge=True, mat_alpha=None, fb=None, fp=None):
+def build(pos, uv, fs, fm, fc, merge=True, mat_alpha=None, fb=None, fp=None, keep_block_faces=False):
+    """keep_block_faces：按单个方块拆分时为 True —— 不同方块之间重合的面（相邻方块贴在一起的两面）都保留，
+    各自沿法线推出一点，保证每个方块单独移动时都是完整的封闭模型。"""
     nf = len(fs)
     if nf == 0:
         z = np.zeros(0, np.int32)
@@ -92,6 +94,9 @@ def build(pos, uv, fs, fm, fc, merge=True, mat_alpha=None, fb=None, fp=None):
     #  - 同朝向、同 UV 的另一张贴图（如草方块侧面的覆盖层）→ 记录下来，合成进底层贴图
     #  - 其它（墙上的涂鸦/水渍贴花、背靠背的不同方块）→ 都保留，带透明的那个沿法线推出一点，避免闪烁和互相吞掉
     key = np.sort(idx4, axis=1)
+    if keep_block_faces:
+        # 按单个方块拆分：只在同一个方块内部找重合面（覆盖层合成、去重），不同方块贴在一起的面各自保留
+        key = np.concatenate([key, np.asarray(fp, np.int64)], axis=1)
     keep = np.zeros(nf, bool)
     push = np.zeros(nf, np.float32)
     ov_mat = np.full(nf, -1, np.int64)

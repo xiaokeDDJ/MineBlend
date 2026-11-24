@@ -246,7 +246,8 @@ public final class BridgeServer {
                         new BlockMesher.Opts(
                                 intArg(q, "plants", 1) != 0, intArg(q, "fluids", 1) != 0,
                                 intArg(q, "blockEntities", 1) != 0, intArg(q, "entities", 1) != 0,
-                                intArg(q, "mobs", 0) != 0, intArg(q, "cull", 0) != 0)));
+                                intArg(q, "mobs", 0) != 0, intArg(q, "cull", 0) != 0,
+                                intArg(q, "inner", 1) != 0)));
             default:
                 throw new ApiException("未知接口 " + path);
         }

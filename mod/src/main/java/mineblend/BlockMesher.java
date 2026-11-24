@@ -38,7 +38,8 @@ final class BlockMesher {
             {1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1},
     };
 
-    record Opts(boolean plants, boolean fluids, boolean blockEntities, boolean entities, boolean mobs, boolean cullBoundary) {}
+    /** cullInner：剔除方块之间互相挡住的面（合并导入时开启；按单个方块拆分时关闭，让每个方块都是完整的封闭模型） */
+    record Opts(boolean plants, boolean fluids, boolean blockEntities, boolean entities, boolean mobs, boolean cullBoundary, boolean cullInner) {}
 
     private final SnapshotView view;
     private final MeshOut out;
@@ -127,7 +128,7 @@ final class BlockMesher {
                     int pid = ids[idx] & 0xFFFF;
                     BlockState st = pal[pid];
                     if (st.isAir()) continue;
-                    if (opaque[pid]
+                    if (opts.cullInner() && opaque[pid]
                             && opaque[ids[idx + 1] & 0xFFFF] && opaque[ids[idx - 1] & 0xFFFF]
                             && opaque[ids[idx + psx] & 0xFFFF] && opaque[ids[idx - psx] & 0xFFFF]
                             && opaque[ids[idx + strideY] & 0xFFFF] && opaque[ids[idx - strideY] & 0xFFFF]) continue;
@@ -160,7 +161,7 @@ final class BlockMesher {
                                 int bit = 1 << q.cull.ordinal();
                                 if ((visKnown & bit) == 0) {
                                     visKnown |= bit;
-                                    if (Mc.faceVisible(st, view, pos, q.cull, npos)) visible |= bit;
+                                    if (!opts.cullInner() || Mc.faceVisible(st, view, pos, q.cull, npos)) visible |= bit;
                                 }
                                 if ((visible & bit) == 0) continue;
                             }
