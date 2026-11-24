@@ -2,8 +2,6 @@
 
 把**正在运行的 Minecraft 世界**实时导入 Blender：在 Blender 里打开游戏的俯视地图框选一块区域（或在游戏里用「选区棒」框选），一键生成带真实贴图的网格。
 
-> 1.1.0 起由 Mine2Blend 改名为 MineBlend，升级方法见[从 Mine2Blend 升级](#从-mine2blend-升级)。English summary at the bottom.
-
 ## ✨ 核心特点：纯净导入
 
 MineBlend 导入的场景**干净、可直接用于制作**，不会往你的工程里塞任何多余的东西：
